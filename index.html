@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Check-in Cantiere v9</title>
+  <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #f0f0f0;
+      margin:0;
+      padding:20px;
+      background-image: url('https://images.unsplash.com/photo-1581092795360-f2f56c36ba38?auto=format&fit=crop&w=1350&q=80');
+      background-size: cover;
+      background-position: center;
+      background-attachment: fixed;
+    }
+    .container {
+      background: rgba(255,255,255,0.9);
+      padding:20px;
+      border-radius:12px;
+      max-width:600px;
+      margin: 0 auto;
+    }
+    #reader {
+      width:100%;
+      max-width:350px;
+      height:350px;
+      margin:10px auto;
+      background:#000;
+    }
+    .hidden {display:none;}
+    .btn {
+      padding:16px;
+      margin-top:12px;
+      width:100%;
+      font-size:18px;
+      border:none;
+      border-radius:8px;
+    }
+    .entry {background:#28a745;color:#fff;}
+    .exit {background:#dc3545;color:#fff;}
+    .scan {background:#007bff;color:#fff;}
+    input {
+      width:100%;
+      font-size:18px;
+      padding:12px;
+      margin-top:6px;
+      margin-bottom:12px;
+      border-radius:6px;
+      border:1px solid #aaa;
+    }
+    label {font-size:18px; font-weight:bold;}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h2>Registrazione Presenza</h2>
+    <div id="scanArea">
+      <button id="startScan" class="btn scan">Avvia scansione QR</button>
+      <div id="reader"></div>
+      <p id="scanMsg"></p>
+    </div>
+
+    <div id="formArea" class="hidden">
+      <label>Cantiere</label>
+      <input id="cantiere" readonly/>
+
+      <label>Nome e Cognome</label>
+      <input id="nome"/>
+
+      <label>Azienda</label>
+      <input id="azienda"/>
+
+      <button id="btnEntrata" class="btn entry">Entrata</button>
+      <button id="btnUscita" class="btn exit">Uscita</button>
+
+      <button id="btnNew" class="btn scan">Nuova scansione QR</button>
+    </div>
+
+    <p id="error" style="color:red;"></p>
+    <p id="success" style="color:green;"></p>
+  </div>
+
+<script>
+let html5QrCode;
+let lastCantiere = null;
+const API_ENDPOINT = "/api/save";
+
+function show(id){document.getElementById(id).classList.remove("hidden");}
+function hide(id){document.getElementById(id).classList.add("hidden");}
+function setText(id,txt){document.getElementById(id).innerText=txt;}
+
+function handleQr(text){
+  let cantiere = null;
+  try{
+    const obj = JSON.parse(text);
+    if(obj.cantiere) cantiere = obj.cantiere;
+  }catch(e){
+    try{
+      const u = new URL(text);
+      cantiere = u.searchParams.get("cantiere");
+    }catch(e2){
+      cantiere = text;
+    }
+  }
+  if(!cantiere){
+    setText("error","QR non valido");
+    return;
+  }
+  cantiere = cantiere.trim().toUpperCase();
+  lastCantiere = cantiere;
+  document.getElementById("cantiere").value = cantiere;
+  hide("scanArea");
+  show("formArea");
+}
+
+async function startCameraScan(){
+  setText("error",""); setText("success","");
+  html5QrCode = new Html5Qrcode("reader");
+  try{
+    await html5QrCode.start(
+      { facingMode: "environment" },
+      { fps: 10, qrbox: {width:300, height:300} },
+      (decodedText)=>{
+        html5QrCode.stop().then(()=>{
+          handleQr(decodedText);
+        });
+      }
+    );
+    setText("scanMsg","Inquadra il QR...");
+  }catch(e){
+    setText("error","Errore fotocamera: "+e);
+  }
+}
+
+async function send(azione){
+  const nome = document.getElementById("nome").value.trim();
+  const azienda = document.getElementById("azienda").value.trim();
+  const cantiere = lastCantiere;
+  if(!nome || !azienda){setText("error","Compila tutti i campi");return;}
+  const now = new Date();
+  const payload = {
+    data: now.toLocaleDateString("it-IT"),
+    ora: now.toLocaleTimeString("it-IT"),
+    nome, azienda, cantiere, azione
+  };
+  try{
+    const res = await fetch(API_ENDPOINT, {
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body: JSON.stringify(payload)
+    });
+    if(!res.ok) throw new Error(await res.text());
+    if(azione === "ENTRATA"){
+      setText("success","Entrata registrata ✅");
+    } else {
+      setText("success","Uscita registrata ✅");
+    }
+  }catch(e){
+    setText("error","Errore: "+e.message);
+  }
+}
+
+function resetToScan(){
+  show("scanArea");
+  hide("formArea");
+  document.getElementById("nome").value="";
+  document.getElementById("azienda").value="";
+  lastCantiere=null;
+}
+
+document.getElementById("startScan").onclick = startCameraScan;
+document.getElementById("btnEntrata").onclick = ()=>send("ENTRATA");
+document.getElementById("btnUscita").onclick = ()=>send("USCITA");
+document.getElementById("btnNew").onclick = resetToScan;
+</script>
+
+</body>
+</html>
